@@ -1,2 +1,3 @@
-# client-go-play
-Playground for learning k8s client-go
+# client-go Playground
+
+Playground for learning Kubernetes [client-go](https://github.com/kubernetes/client-go).
