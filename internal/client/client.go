@@ -1,9 +1,10 @@
-package kubeconfig
+package client
 
 import (
 	"errors"
 	"os"
 
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
@@ -28,4 +29,13 @@ func KubeconfigGet(kubeconfigPath string) (*rest.Config, error) {
 	}
 
 	return kubeconfig, err
+}
+
+func ClientsetCreate(kubeconfig *rest.Config) (*kubernetes.Clientset, error) {
+	clientset, err := kubernetes.NewForConfig(kubeconfig)
+	if err != nil {
+		return nil, err
+	}
+
+	return clientset, nil
 }

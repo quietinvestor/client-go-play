@@ -5,9 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/quietinvestor/client-go-play/client"
-	"github.com/quietinvestor/client-go-play/kubeconfig"
-	"github.com/quietinvestor/client-go-play/pods"
+	"github.com/quietinvestor/client-go-play/internal/client"
+	"github.com/quietinvestor/client-go-play/internal/pods"
 )
 
 func errCheck(err error) {
@@ -18,10 +17,10 @@ func errCheck(err error) {
 }
 
 func main() {
-	home, err := kubeconfig.HomePathGet()
+	home, err := client.HomePathGet()
 	errCheck(err)
 
-	kubeconfig, err := kubeconfig.KubeconfigGet(filepath.Join(home, ".kube", "config"))
+	kubeconfig, err := client.KubeconfigGet(filepath.Join(home, ".kube", "config"))
 	errCheck(err)
 
 	clientset, err := client.ClientsetCreate(kubeconfig)
