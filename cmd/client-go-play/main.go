@@ -2,40 +2,50 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
-	"log"
+	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/quietinvestor/client-go-play/internal/client"
 	"github.com/quietinvestor/client-go-play/internal/pods"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/klog/v2"
 )
 
-func errCheck(msg string, err error) {
+func handleError(err error, msg string, keysAndValues ...interface{}) {
 	if err != nil {
-		log.Fatalf("Failed to %s: %v", msg, err)
+		klog.ErrorS(err, "Failed to "+msg, keysAndValues...)
+		os.Exit(1)
 	}
 }
 
 func main() {
-	home, err := client.HomePathGet()
-	errCheck("get home directory", err)
+	klog.InitFlags(nil)
+	flag.Parse()
 
-	kubeconfig, err := client.KubeconfigGet(filepath.Join(home, ".kube", "config"))
-	errCheck("get kubeconfig", err)
+	home, err := client.HomePathGet()
+	handleError(err, "get home directory", "os", runtime.GOOS)
+
+	kubeconfigPath := filepath.Join(home, ".kube", "config")
+
+	kubeconfig, err := client.KubeconfigGet(kubeconfigPath)
+	handleError(err, "get kubeconfig", "kubeconfigPath", kubeconfigPath)
 
 	clientset, err := client.ClientsetCreate(kubeconfig)
-	errCheck("create clientset", err)
+	handleError(err, "create clientset")
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
+	namespace := ""
 	opts := metav1.ListOptions{}
 
-	podsList, err := pods.PodsList(ctx, clientset, "", opts)
-	errCheck("list pods", err)
+	podsList, err := pods.PodsList(ctx, clientset, namespace, opts)
+	handleError(err, "list pods", "namespace", namespace, "opts", opts)
 
 	for _, pod := range podsList {
 		fmt.Println(pod.Name)
