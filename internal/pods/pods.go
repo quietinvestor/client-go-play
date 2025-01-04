@@ -8,9 +8,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-func PodsList(clientset *kubernetes.Clientset) ([]corev1.Pod, error) {
-	pods, err := clientset.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{})
-
+func PodsList(ctx context.Context, client kubernetes.Interface, namespace string, opts metav1.ListOptions) ([]corev1.Pod, error) {
+	pods, err := client.CoreV1().Pods(namespace).List(ctx, opts)
 	if err != nil {
 		return nil, err
 	}

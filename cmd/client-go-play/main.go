@@ -1,33 +1,41 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"os"
+	"log"
 	"path/filepath"
+	"time"
 
 	"github.com/quietinvestor/client-go-play/internal/client"
 	"github.com/quietinvestor/client-go-play/internal/pods"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func errCheck(err error) {
+func errCheck(msg string, err error) {
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
+		log.Fatalf("Failed to %s: %v", msg, err)
 	}
 }
 
 func main() {
 	home, err := client.HomePathGet()
-	errCheck(err)
+	errCheck("get home directory", err)
 
 	kubeconfig, err := client.KubeconfigGet(filepath.Join(home, ".kube", "config"))
-	errCheck(err)
+	errCheck("get kubeconfig", err)
 
 	clientset, err := client.ClientsetCreate(kubeconfig)
-	errCheck(err)
+	errCheck("create clientset", err)
 
-	podsList, err := pods.PodsList(clientset)
-	errCheck(err)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+
+	opts := metav1.ListOptions{}
+
+	podsList, err := pods.PodsList(ctx, clientset, "", opts)
+	errCheck("list pods", err)
 
 	for _, pod := range podsList {
 		fmt.Println(pod.Name)
