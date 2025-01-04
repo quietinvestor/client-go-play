@@ -44,10 +44,11 @@ func main() {
 	namespace := ""
 	opts := metav1.ListOptions{}
 
-	podsList, err := pods.PodsList(ctx, clientset, namespace, opts)
+	podClient := pods.New(clientset, namespace)
+	podsList, err := podClient.List(ctx, opts)
 	handleError(err, "list pods", "namespace", namespace, "opts", opts)
 
-	for _, pod := range podsList {
+	for _, pod := range podsList.Items {
 		fmt.Println(pod.Name)
 	}
 }

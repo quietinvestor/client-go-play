@@ -8,11 +8,22 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-func PodsList(ctx context.Context, client kubernetes.Interface, namespace string, opts metav1.ListOptions) ([]corev1.Pod, error) {
-	pods, err := client.CoreV1().Pods(namespace).List(ctx, opts)
-	if err != nil {
-		return nil, err
-	}
+type Interface interface {
+	List(ctx context.Context, opts metav1.ListOptions) (*corev1.PodList, error)
+}
 
-	return pods.Items, nil
+type Client struct {
+	client    kubernetes.Interface
+	namespace string
+}
+
+func New(client kubernetes.Interface, namespace string) Interface {
+	return &Client{
+		client:    client,
+		namespace: namespace,
+	}
+}
+
+func (c *Client) List(ctx context.Context, opts metav1.ListOptions) (*corev1.PodList, error) {
+	return c.client.CoreV1().Pods(c.namespace).List(ctx, opts)
 }
