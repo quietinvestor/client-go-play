@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/quietinvestor/client-go-play/internal/kubeclient"
@@ -14,13 +13,41 @@ import (
 	"k8s.io/klog/v2"
 )
 
-const defaultTimeout = 5 * time.Second
+const (
+	defaultPodListTimeout = 30 * time.Second
+)
 
-func handleError(err error, msg string, keysAndValues ...interface{}) {
+func run(ctx context.Context, kubeconfig, namespace string, opts metav1.ListOptions) error {
+	clientset, err := kubeclient.New(kubeconfig)
 	if err != nil {
-		klog.ErrorS(err, "Failed to "+msg, keysAndValues...)
-		os.Exit(1)
+		klog.ErrorS(err, "Failed to create clientset",
+			"kubeconfig", kubeconfig)
+		return fmt.Errorf("failed to create clientset: %w", err)
 	}
+
+	klog.V(2).InfoS("Successfully created clientset",
+		"kubeconfig", kubeconfig)
+
+	podsClient := pods.New(clientset.ClientSet(), namespace)
+	podList, err := podsClient.List(ctx, opts)
+	if err != nil {
+		klog.ErrorS(err, "Failed to list pods",
+			"namespace", namespace,
+			"opts", opts,
+			"podsCount", len(podList.Items))
+		return fmt.Errorf("failed to list pods: %w", err)
+	}
+
+	klog.V(2).InfoS("Successfully listed pods",
+		"namespace", namespace,
+		"opts", opts,
+		"podsCount", len(podList.Items))
+
+	for _, pod := range podList.Items {
+		fmt.Println(pod.Name)
+	}
+
+	return nil
 }
 
 func main() {
@@ -28,20 +55,16 @@ func main() {
 	flag.Parse()
 
 	kubeconfig := ""
-	clientset, err := kubeclient.New(kubeconfig)
-	handleError(err, "create clientset", "kubeconfig", kubeconfig)
-
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
-	defer cancel()
-
 	namespace := ""
 	opts := metav1.ListOptions{}
 
-	podClient := pods.New(clientset.ClientSet(), namespace)
-	podsList, err := podClient.List(ctx, opts)
-	handleError(err, "list pods", "namespace", namespace, "opts", opts)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultPodListTimeout)
+	defer cancel()
 
-	for _, pod := range podsList.Items {
-		fmt.Println(pod.Name)
+	if err := run(ctx, kubeconfig, namespace, opts); err != nil {
+		klog.ErrorS(err, "Failed to run application",
+			"kubeconfig", kubeconfig,
+			"timeout", defaultPodListTimeout)
+		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 }
