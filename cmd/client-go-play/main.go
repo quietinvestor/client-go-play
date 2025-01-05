@@ -17,17 +17,21 @@ const (
 	defaultPodListTimeout = 30 * time.Second
 )
 
-func run(ctx context.Context, kubeconfig, namespace string, opts metav1.ListOptions) error {
+func setupClient(kubeconfig string) (kubeclient.Interface, error) {
 	clientset, err := kubeclient.New(kubeconfig)
 	if err != nil {
 		klog.ErrorS(err, "Failed to create clientset",
 			"kubeconfig", kubeconfig)
-		return fmt.Errorf("failed to create clientset: %w", err)
+		return nil, fmt.Errorf("failed to create clientset: %w", err)
 	}
 
 	klog.V(2).InfoS("Successfully created clientset",
 		"kubeconfig", kubeconfig)
 
+	return clientset, nil
+}
+
+func listPods(ctx context.Context, clientset kubeclient.Interface, namespace string, opts metav1.ListOptions) error {
 	podsClient := pods.New(clientset.ClientSet(), namespace)
 	podList, err := podsClient.List(ctx, opts)
 	if err != nil {
@@ -48,6 +52,15 @@ func run(ctx context.Context, kubeconfig, namespace string, opts metav1.ListOpti
 	}
 
 	return nil
+}
+
+func run(ctx context.Context, kubeconfig, namespace string, opts metav1.ListOptions) error {
+	clientset, err := setupClient(kubeconfig)
+	if err != nil {
+		return err
+	}
+
+	return listPods(ctx, clientset, namespace, opts)
 }
 
 func main() {
