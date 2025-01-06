@@ -14,35 +14,39 @@ import (
 )
 
 const (
-	defaultPodListTimeout = 30 * time.Second
+	defaultTimeout = 10 * time.Second
 )
 
-func setupClient(kubeconfig string) (kubeclient.Interface, error, []interface{}) {
+func setupClient(ctx context.Context, kubeconfig string) (kubeclient.Interface, error) {
+	logger := klog.FromContext(ctx)
+
 	clientset, err := kubeclient.New(kubeconfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create clientset: %w", err),
-			[]interface{}{"kubeconfig", kubeconfig}
+		logger.Error(err, "Failed to create clientset",
+			"kubeconfig", kubeconfig)
+		return nil, fmt.Errorf("Failed to create clientset: %w", err)
 	}
 
-	klog.V(2).InfoS("Successfully created clientset",
+	logger.V(2).Info("Successfully created clientset",
 		"kubeconfig", kubeconfig)
 
-	return clientset, nil, nil
+	return clientset, nil
 }
 
-func listPods(ctx context.Context, clientset kubeclient.Interface, namespace string, opts metav1.ListOptions) (error, []interface{}) {
+func listPods(ctx context.Context, clientset kubeclient.Interface, namespace string, opts metav1.ListOptions) error {
+	logger := klog.FromContext(ctx)
+
 	podsClient := pods.New(clientset.ClientSet(), namespace)
 	podList, err := podsClient.List(ctx, opts)
 	if err != nil {
-		return fmt.Errorf("failed to list pods: %w", err),
-			[]interface{}{
-				"namespace", namespace,
-				"opts", opts,
-				"podsCount", len(podList.Items),
-			}
+		logger.Error(err, "Failed to list pods",
+			"namespace", namespace,
+			"opts", opts,
+			"podsCount", len(podList.Items))
+		return fmt.Errorf("Failed to list pods: %w", err)
 	}
 
-	klog.V(2).InfoS("Successfully listed pods",
+	logger.V(2).Info("Successfully listed pods",
 		"namespace", namespace,
 		"opts", opts,
 		"podsCount", len(podList.Items))
@@ -51,13 +55,13 @@ func listPods(ctx context.Context, clientset kubeclient.Interface, namespace str
 		fmt.Println(pod.Name)
 	}
 
-	return nil, nil
+	return nil
 }
 
-func run(ctx context.Context, kubeconfig, namespace string, opts metav1.ListOptions) (error, []interface{}) {
-	clientset, err, kv := setupClient(kubeconfig)
+func run(ctx context.Context, kubeconfig, namespace string, opts metav1.ListOptions) error {
+	clientset, err := setupClient(ctx, kubeconfig)
 	if err != nil {
-		return err, kv
+		return err
 	}
 
 	return listPods(ctx, clientset, namespace, opts)
@@ -68,15 +72,17 @@ func main() {
 	flag.Parse()
 	defer klog.Flush()
 
+	logger := klog.Background().WithName("pod-client")
+
+	ctx := klog.NewContext(context.Background(), logger)
+	ctx, cancel := context.WithTimeout(ctx, defaultTimeout)
+	defer cancel()
+
 	kubeconfig := ""
 	namespace := ""
 	opts := metav1.ListOptions{}
 
-	ctx, cancel := context.WithTimeout(context.Background(), defaultPodListTimeout)
-	defer cancel()
-
-	if err, kv := run(ctx, kubeconfig, namespace, opts); err != nil {
-		klog.ErrorS(err, "Failed to run application", kv...)
+	if err := run(ctx, kubeconfig, namespace, opts); err != nil {
 		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 }
