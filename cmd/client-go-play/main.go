@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -61,12 +62,12 @@ func listPods(ctx context.Context, clientset *kubernetes.Clientset, namespace st
 	podList, err := clientset.CoreV1().Pods(namespace).List(ctx, opts)
 	if err != nil {
 		logger.Error(err, "Failed to list pods",
-			"podsCount", len(podList.Items))
+			"podCount", len(podList.Items))
 		return fmt.Errorf("Failed to list pods: %w", err)
 	}
 
 	logger.V(2).Info("Successfully listed pods",
-		"podsCount", len(podList.Items))
+		"podCount", len(podList.Items))
 
 	for _, pod := range podList.Items {
 		fmt.Println(pod.Name)
@@ -77,6 +78,9 @@ func listPods(ctx context.Context, clientset *kubernetes.Clientset, namespace st
 
 func main() {
 	config := textlogger.NewConfig()
+	config.AddFlags(flag.CommandLine)
+	flag.Parse()
+
 	logger := textlogger.NewLogger(config).WithName("pod-client")
 
 	ctx := logr.NewContext(context.Background(), logger)
