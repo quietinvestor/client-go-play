@@ -2,15 +2,16 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
+	"os"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/quietinvestor/client-go-play/internal/kubeclient"
 	"github.com/quietinvestor/client-go-play/internal/pods"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/klog/v2"
+	"k8s.io/klog/v2/textlogger"
 )
 
 const (
@@ -18,7 +19,12 @@ const (
 )
 
 func setupClient(ctx context.Context, kubeconfig string) (kubeclient.Interface, error) {
-	logger := klog.FromContext(ctx)
+	logger, err := logr.FromContext(ctx)
+	if err != nil {
+		config := textlogger.NewConfig()
+		logger = textlogger.NewLogger(config).WithName("setup-client")
+		logger.V(2).Info("No logger found in context, created new logger")
+	}
 
 	clientset, err := kubeclient.New(kubeconfig)
 	if err != nil {
@@ -34,7 +40,12 @@ func setupClient(ctx context.Context, kubeconfig string) (kubeclient.Interface, 
 }
 
 func listPods(ctx context.Context, clientset kubeclient.Interface, namespace string, opts metav1.ListOptions) error {
-	logger := klog.FromContext(ctx)
+	logger, err := logr.FromContext(ctx)
+	if err != nil {
+		config := textlogger.NewConfig()
+		logger = textlogger.NewLogger(config).WithName("list-pods")
+		logger.V(2).Info("No logger found in context, created new logger")
+	}
 
 	podsClient := pods.New(clientset.ClientSet(), namespace)
 	podList, err := podsClient.List(ctx, opts)
@@ -68,13 +79,10 @@ func run(ctx context.Context, kubeconfig, namespace string, opts metav1.ListOpti
 }
 
 func main() {
-	klog.InitFlags(nil)
-	flag.Parse()
-	defer klog.Flush()
+	config := textlogger.NewConfig()
+	logger := textlogger.NewLogger(config).WithName("pod-client")
 
-	logger := klog.Background().WithName("pod-client")
-
-	ctx := klog.NewContext(context.Background(), logger)
+	ctx := logr.NewContext(context.Background(), logger)
 	ctx, cancel := context.WithTimeout(ctx, defaultTimeout)
 	defer cancel()
 
@@ -83,6 +91,6 @@ func main() {
 	opts := metav1.ListOptions{}
 
 	if err := run(ctx, kubeconfig, namespace, opts); err != nil {
-		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
+		os.Exit(1)
 	}
 }
