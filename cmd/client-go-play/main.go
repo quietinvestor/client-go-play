@@ -8,7 +8,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/quietinvestor/client-go-play/internal/kubeclient"
-	"github.com/quietinvestor/client-go-play/internal/pods"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2/textlogger"
@@ -47,8 +46,7 @@ func listPods(ctx context.Context, clientset kubeclient.Interface, namespace str
 		logger.V(2).Info("No logger found in context, created new logger")
 	}
 
-	podsClient := pods.New(clientset.ClientSet(), namespace)
-	podList, err := podsClient.List(ctx, opts)
+	podList, err := clientset.ClientSet().CoreV1().Pods(namespace).List(ctx, opts)
 	if err != nil {
 		logger.Error(err, "Failed to list pods",
 			"namespace", namespace,
