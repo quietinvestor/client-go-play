@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/spf13/cobra"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -77,26 +78,61 @@ func listPods(ctx context.Context, clientset *kubernetes.Clientset, namespace st
 }
 
 func main() {
-	config := textlogger.NewConfig()
-	config.AddFlags(flag.CommandLine)
-	flag.Parse()
+	var kubeconfig, namespace string
+	var clientset *kubernetes.Clientset
+	var ctx context.Context
+	var cancel context.CancelFunc
+	var opts metav1.ListOptions
 
-	logger := textlogger.NewLogger(config).WithName("pod-client")
+	loggerConfig := textlogger.NewConfig()
+	configFlags := flag.NewFlagSet("k8s", flag.ExitOnError)
 
-	ctx := logr.NewContext(context.Background(), logger)
-	ctx, cancel := context.WithTimeout(ctx, defaultTimeout)
-	defer cancel()
+	rootCmd := &cobra.Command{
+		Use:   "k8s",
+		Short: "Kubernetes client examples",
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			logger := textlogger.NewLogger(loggerConfig).WithName("k8s-client")
 
-	kubeconfig := ""
-	namespace := ""
-	opts := metav1.ListOptions{}
+			ctx = logr.NewContext(context.Background(), logger)
+			ctx, cancel = context.WithTimeout(ctx, defaultTimeout)
 
-	clientset, err := setupClient(ctx, kubeconfig)
-	if err != nil {
-		os.Exit(1)
+			var err error
+			clientset, err = setupClient(ctx, kubeconfig)
+			if err != nil {
+				return err
+			}
+
+			return nil
+		},
+		PersistentPostRun: func(cmd *cobra.Command, args []string) {
+			cancel()
+		},
 	}
 
-	if err := listPods(ctx, clientset, namespace, opts); err != nil {
+	podsCmd := &cobra.Command{
+		Use:   "pods",
+		Short: "Pod operations",
+	}
+
+	listCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List pods",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return listPods(ctx, clientset, namespace, opts)
+		},
+	}
+
+	loggerConfig.AddFlags(configFlags)
+	rootCmd.PersistentFlags().AddGoFlagSet(configFlags)
+	rootCmd.PersistentFlags().StringVar(&kubeconfig, "kubeconfig", "", "Kubeconfig file path")
+	rootCmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", "", "Namespace to filter resources")
+
+	podsCmd.AddCommand(listCmd)
+	rootCmd.AddCommand(podsCmd)
+
+	opts = metav1.ListOptions{}
+
+	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
 }
