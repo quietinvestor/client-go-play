@@ -1,4 +1,4 @@
-package main
+package kubeclient
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
+
 	"k8s.io/klog/v2/ktesting"
 )
 
@@ -64,14 +65,14 @@ func TestLoadConfig(t *testing.T) {
 
 	for _, tt := range configTestCases {
 		t.Run(tt.name, func(t *testing.T) {
-			config := ktesting.NewConfig(ktesting.BufferLogs(true))
-			logger := ktesting.NewLogger(t, config).WithName("test")
+			loggerConfig := ktesting.NewConfig(ktesting.BufferLogs(true))
+			logger := ktesting.NewLogger(t, loggerConfig).WithName("test")
 
 			ctx := logr.NewContext(context.Background(), logger)
 
 			tt.setup()
 
-			_, err := loadConfig(ctx, tt.path)
+			_, err := NewConfig(ctx, tt.path)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("loadConfig() error = %v, wantErr %v", err, tt.wantErr)
 			}
