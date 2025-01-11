@@ -14,6 +14,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
 	"k8s.io/klog/v2/textlogger"
@@ -23,29 +24,35 @@ const (
 	defaultTimeout = 10 * time.Second
 )
 
-func setupClient(ctx context.Context, kubeconfig string) (*kubernetes.Clientset, error) {
+func loadConfig(ctx context.Context, path string) (*rest.Config, error) {
 	logger, _ := logr.FromContext(ctx)
 
-	if kubeconfig == "" {
+	if path == "" {
 		home := homedir.HomeDir()
 		if home == "" {
 			logger.Error(errors.New("home directory not found"), "Failed to create client")
 			return nil, fmt.Errorf("Failed to create client: home directory not found")
 		}
-		kubeconfig = filepath.Join(home, ".kube", "config")
+		path = filepath.Join(home, ".kube", "config")
 	}
 
-	logger = logger.WithValues("kubeconfig", kubeconfig)
+	logger = logger.WithValues("path", path)
 
-	restConfig, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	config, err := clientcmd.BuildConfigFromFlags("", path)
 	if err != nil {
 		logger.Error(err, "Failed to load kubeconfig")
-		return nil, fmt.Errorf("Failed to load kubeconfig from %s: %w", kubeconfig, err)
+		return nil, fmt.Errorf("Failed to load kubeconfig from %s: %w", path, err)
 	}
 
 	logger.V(2).Info("Successfully loaded kubeconfig")
 
-	clientset, err := kubernetes.NewForConfig(restConfig)
+	return config, nil
+}
+
+func newClient(ctx context.Context, config *rest.Config) (*kubernetes.Clientset, error) {
+	logger, _ := logr.FromContext(ctx)
+
+	client, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		logger.Error(err, "Failed to create clientset")
 		return nil, fmt.Errorf("Failed to create clientset: %w", err)
@@ -53,7 +60,7 @@ func setupClient(ctx context.Context, kubeconfig string) (*kubernetes.Clientset,
 
 	logger.V(2).Info("Successfully created clientset")
 
-	return clientset, nil
+	return client, nil
 }
 
 func listPods(ctx context.Context, clientset *kubernetes.Clientset, namespace string, opts metav1.ListOptions) error {
@@ -62,8 +69,7 @@ func listPods(ctx context.Context, clientset *kubernetes.Clientset, namespace st
 
 	podList, err := clientset.CoreV1().Pods(namespace).List(ctx, opts)
 	if err != nil {
-		logger.Error(err, "Failed to list pods",
-			"podCount", len(podList.Items))
+		logger.Error(err, "Failed to list pods")
 		return fmt.Errorf("Failed to list pods: %w", err)
 	}
 
@@ -78,10 +84,11 @@ func listPods(ctx context.Context, clientset *kubernetes.Clientset, namespace st
 }
 
 func main() {
-	var kubeconfig, namespace string
-	var clientset *kubernetes.Clientset
-	var ctx context.Context
 	var cancel context.CancelFunc
+	var client *kubernetes.Clientset
+	var config *rest.Config
+	var ctx context.Context
+	var namespace, path string
 	var opts metav1.ListOptions
 
 	loggerConfig := textlogger.NewConfig()
@@ -91,13 +98,19 @@ func main() {
 		Use:   "k8s",
 		Short: "Kubernetes client examples",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			var err error
+
 			logger := textlogger.NewLogger(loggerConfig).WithName("k8s-client")
 
 			ctx = logr.NewContext(context.Background(), logger)
 			ctx, cancel = context.WithTimeout(ctx, defaultTimeout)
 
-			var err error
-			clientset, err = setupClient(ctx, kubeconfig)
+			config, err = loadConfig(ctx, path)
+			if err != nil {
+				return err
+			}
+
+			client, err = newClient(ctx, config)
 			if err != nil {
 				return err
 			}
@@ -118,14 +131,14 @@ func main() {
 		Use:   "list",
 		Short: "List pods",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return listPods(ctx, clientset, namespace, opts)
+			return listPods(ctx, client, namespace, opts)
 		},
 	}
 
 	loggerConfig.AddFlags(configFlags)
 	rootCmd.PersistentFlags().AddGoFlagSet(configFlags)
-	rootCmd.PersistentFlags().StringVar(&kubeconfig, "kubeconfig", "", "Kubeconfig file path")
-	rootCmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", "", "Namespace to filter resources")
+	rootCmd.PersistentFlags().StringVar(&path, "kubeconfig", "", "kubeconfig file path")
+	rootCmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", "", "namespace to filter resources")
 
 	podsCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(podsCmd)
