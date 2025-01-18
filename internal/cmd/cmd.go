@@ -9,6 +9,7 @@ import (
 	"github.com/quietinvestor/client-go-play/internal/pods"
 
 	"github.com/go-logr/logr"
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,7 +32,7 @@ type State struct {
 }
 
 func NewRootCmd() *cobra.Command {
-	var namespace, path string
+	var namespace, rawPath string
 
 	loggerConfig := textlogger.NewConfig()
 	configFlags := flag.NewFlagSet("k8s", flag.ExitOnError)
@@ -47,13 +48,27 @@ func NewRootCmd() *cobra.Command {
 			ctx := logr.NewContext(context.Background(), logger)
 			ctx, cancel := context.WithTimeout(ctx, defaultTimeout)
 
-			config, err := kubeclient.NewConfig(ctx, path)
+			path, err := kubeclient.NewPath(ctx, rawPath)
 			if err != nil {
 				cancel()
 				return err
 			}
 
-			client, err := kubeclient.NewClient(ctx, config)
+			fs := afero.NewOsFs()
+
+			kubeConfig, err := kubeclient.NewKubeConfig(ctx, fs, path)
+			if err != nil {
+				cancel()
+				return err
+			}
+
+			restConfig, err := kubeclient.NewRestConfig(ctx, kubeConfig)
+			if err != nil {
+				cancel()
+				return err
+			}
+
+			clientSet, err := kubeclient.NewClientSet(ctx, restConfig)
 			if err != nil {
 				cancel()
 				return err
@@ -62,7 +77,7 @@ func NewRootCmd() *cobra.Command {
 			state := &State{
 				Ctx:       ctx,
 				Cancel:    cancel,
-				Client:    client,
+				Client:    clientSet,
 				Namespace: namespace,
 				Opts:      metav1.ListOptions{},
 			}
@@ -79,7 +94,7 @@ func NewRootCmd() *cobra.Command {
 
 	loggerConfig.AddFlags(configFlags)
 	cmd.PersistentFlags().AddGoFlagSet(configFlags)
-	cmd.PersistentFlags().StringVarP(&path, "kubeconfig", "k", "", "kubeconfig file path")
+	cmd.PersistentFlags().StringVarP(&rawPath, "kubeconfig", "k", "", "kubeconfig file path")
 	cmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", "", "namespace to filter resources")
 
 	cmd.AddCommand(newPodsCmd())

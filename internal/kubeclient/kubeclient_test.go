@@ -3,81 +3,261 @@ package kubeclient
 import (
 	"context"
 	"errors"
+	"fmt"
+	"path/filepath"
 	"testing"
 
 	"github.com/go-logr/logr"
+	"github.com/spf13/afero"
 
+	"k8s.io/client-go/rest"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/klog/v2/ktesting"
 )
 
 type testCase struct {
-	name     string
-	setup    func()
-	wantErr  bool
-	wantLogs []ktesting.LogEntry
+	fileContent string
+	fs          afero.Fs
+	kubeConfig  *clientcmdapi.Config
+	name        string
+	path        string
+	restConfig  *rest.Config
+	setup       func()
+	wantErr     bool
+	wantLogs    []ktesting.LogEntry
 }
 
-type configTestCase struct {
-	testCase
-	path string
+func (tc *testCase) writeMockFile() error {
+	dir := filepath.Dir(tc.path)
+
+	if err := tc.fs.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create directories for path %s: %w", tc.path, err)
+	}
+
+	if err := afero.WriteFile(tc.fs, tc.path, []byte(tc.fileContent), 0644); err != nil {
+		return fmt.Errorf("failed to write mock file: %w", err)
+	}
+
+	return nil
 }
 
-func TestLoadConfig(t *testing.T) {
-	configTestCases := []configTestCase{
+func TestNewPath(t *testing.T) {
+	testCases := []testCase{
 		{
-			testCase: testCase{
-				name: "empty kubeconfig with no home dir",
-				setup: func() {
-					t.Setenv("HOME", "")
-				},
-				wantErr: true,
-				wantLogs: []ktesting.LogEntry{
-					{
-						Type:    ktesting.LogError,
-						Message: "Failed to create client",
-						Prefix:  "test",
-						Err:     errors.New("home directory not found"),
-					},
+			name: "empty kubeconfig with no home dir",
+			path: "",
+			setup: func() {
+				t.Setenv("HOME", "")
+			},
+			wantErr: true,
+			wantLogs: []ktesting.LogEntry{
+				{
+					Type:    ktesting.LogError,
+					Message: "failed to create client",
+					Prefix:  "test",
+					Err:     errors.New("home directory not found"),
 				},
 			},
-			path: "",
 		},
 		{
-			testCase: testCase{
-				name:    "invalid kubeconfig path",
-				setup:   func() {},
-				wantErr: true,
-				wantLogs: []ktesting.LogEntry{
-					{
-						Type:    ktesting.LogError,
-						Message: "Failed to load kubeconfig",
-						Prefix:  "test",
-						WithKVList: []interface{}{
-							"path", "/non/existent/path/config",
-						},
-						Err: errors.New("stat /non/existent/path/config: no such file or directory"),
-					},
+			name: "kubeconfig with home dir",
+			path: "/home/testuser/.kube/config",
+			setup: func() {
+				t.Setenv("HOME", "/home/testuser")
+			},
+			wantErr: false,
+			wantLogs: []ktesting.LogEntry{
+				{
+					Type:      ktesting.LogInfo,
+					Message:   "successfully created kubeconfig path",
+					Prefix:    "test",
+					Verbosity: 2,
 				},
 			},
-			path: "/non/existent/path/config",
 		},
 	}
 
-	for _, tt := range configTestCases {
+	for _, tt := range testCases {
 		t.Run(tt.name, func(t *testing.T) {
 			loggerConfig := ktesting.NewConfig(ktesting.BufferLogs(true))
 			logger := ktesting.NewLogger(t, loggerConfig).WithName("test")
 
 			ctx := logr.NewContext(context.Background(), logger)
 
-			tt.setup()
-
-			_, err := NewConfig(ctx, tt.path)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("loadConfig() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.setup != nil {
+				tt.setup()
 			}
 
-			assertLogFields(ctx, t, tt.testCase)
+			_, err := NewPath(ctx, tt.path)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("NewConfig() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			assertLogFields(ctx, t, tt)
+		})
+	}
+}
+
+func TestNewKubeConfig(t *testing.T) {
+	testCases := []testCase{
+		{
+			fs:      afero.NewMemMapFs(),
+			name:    "invalid kubeconfig path",
+			path:    "/non/existent/path/config",
+			wantErr: true,
+			wantLogs: []ktesting.LogEntry{
+				{
+					Type:    ktesting.LogError,
+					Message: "failed to find kubeconfig file",
+					Prefix:  "test",
+					WithKVList: []interface{}{
+						"path", "/non/existent/path/config",
+					},
+					Err: errors.New("kubeconfig file does not exist"),
+				},
+			},
+		},
+		{
+			fileContent: `
+apiVersion: v1
+kind: Config
+clusters:
+- name: minimal-cluster
+  cluster:
+    server: https://127.0.0.1:6443
+contexts:
+- name: minimal-context
+  context:
+    cluster: minimal-cluster
+    user: minimal-user
+current-context: minimal-context
+users:
+- name: minimal-user
+  user: {}
+`,
+			fs:      afero.NewMemMapFs(),
+			name:    "kubeconfig with home directory",
+			path:    "/home/testuser/.kube/config",
+			wantErr: false,
+			wantLogs: []ktesting.LogEntry{
+				{
+					Type:    ktesting.LogInfo,
+					Message: "successfully loaded kubeconfig",
+					Prefix:  "test",
+					WithKVList: []interface{}{
+						"path", "/home/testuser/.kube/config",
+					},
+					Verbosity: 2,
+				},
+			},
+		},
+	}
+
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+			loggerConfig := ktesting.NewConfig(ktesting.BufferLogs(true))
+			logger := ktesting.NewLogger(t, loggerConfig).WithName("test")
+
+			ctx := logr.NewContext(context.Background(), logger)
+
+			if tt.fs != nil && tt.fileContent != "" {
+				if err := tt.writeMockFile(); err != nil {
+					t.Error(err)
+				}
+			}
+
+			_, err := NewKubeConfig(ctx, tt.fs, tt.path)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("NewConfig() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			assertLogFields(ctx, t, tt)
+		})
+	}
+}
+
+func TestNewClientSet(t *testing.T) {
+	testCases := []testCase{
+		{
+			name:    "invalid host",
+			wantErr: true,
+			wantLogs: []ktesting.LogEntry{
+				{
+					Type:    ktesting.LogError,
+					Message: "failed to create clientset",
+					Prefix:  "test",
+					Err:     errors.New("host must be a URL or a host:port pair: \"http//:invalid-host\""),
+				},
+			},
+			restConfig: &rest.Config{
+				Host: "http//:invalid-host",
+			},
+		},
+		{
+			name:    "invalid TLS configuration",
+			wantErr: true,
+			wantLogs: []ktesting.LogEntry{
+				{
+					Type:    ktesting.LogError,
+					Message: "failed to create clientset",
+					Prefix:  "test",
+					Err:     errors.New("open /invalid/ca.crt: no such file or directory"),
+				},
+			},
+			restConfig: &rest.Config{
+				Host: "https://127.0.0.1:6443",
+				TLSClientConfig: rest.TLSClientConfig{
+					CAFile: "/invalid/ca.crt",
+				},
+			},
+		},
+		{
+			name:    "nil configuration",
+			wantErr: true,
+			wantLogs: []ktesting.LogEntry{
+				{
+					Type:    ktesting.LogError,
+					Message: "failed to create clientset",
+					Prefix:  "test",
+					Err:     errors.New("config is nil"),
+				},
+			},
+			restConfig: nil,
+		},
+		{
+			name:    "valid configuration",
+			wantErr: false,
+			wantLogs: []ktesting.LogEntry{
+				{
+					Type:      ktesting.LogInfo,
+					Message:   "successfully created clientset",
+					Prefix:    "test",
+					Verbosity: 2,
+				},
+			},
+			restConfig: &rest.Config{
+				Host: "https://127.0.0.1:6443",
+			},
+		},
+	}
+
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+			loggerConfig := ktesting.NewConfig(ktesting.BufferLogs(true))
+			logger := ktesting.NewLogger(t, loggerConfig).WithName("test")
+
+			ctx := logr.NewContext(context.Background(), logger)
+
+			if tt.setup != nil {
+				tt.setup()
+			}
+
+			_, err := NewClientSet(ctx, tt.restConfig)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("NewClient() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			assertLogFields(ctx, t, tt)
 		})
 	}
 }
