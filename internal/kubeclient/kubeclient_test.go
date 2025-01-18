@@ -92,7 +92,7 @@ func TestNewPath(t *testing.T) {
 
 			_, err := NewPath(ctx, tt.path)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("NewConfig() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("NewPath() error = %v, wantErr %v", err, tt.wantErr)
 			}
 
 			assertLogFields(ctx, t, tt)
@@ -242,7 +242,69 @@ func TestNewKubeConfig(t *testing.T) {
 
 			_, err := NewKubeConfig(ctx, tt.fs, tt.path)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("NewConfig() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("NewKubeConfig() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			assertLogFields(ctx, t, tt)
+		})
+	}
+}
+
+func TestNewRestConfig(t *testing.T) {
+	testCases := []testCase{
+		{
+			kubeConfig: &clientcmdapi.Config{
+				Clusters: map[string]*clientcmdapi.Cluster{
+					"test-cluster": {
+						Server: "https://example.com",
+					},
+				},
+				Contexts: map[string]*clientcmdapi.Context{
+					"test-context": {
+						Cluster: "test-cluster",
+					},
+				},
+				CurrentContext: "test-context",
+			},
+			name:    "valid config",
+			wantErr: false,
+			wantLogs: []ktesting.LogEntry{
+				{
+					Type:      ktesting.LogInfo,
+					Message:   "successfully loaded REST config",
+					Prefix:    "test",
+					Verbosity: 2,
+				},
+			},
+		},
+		{
+			kubeConfig: &clientcmdapi.Config{},
+			name:       "invalid config",
+			wantErr:    true,
+			wantLogs: []ktesting.LogEntry{
+				{
+					Type:    ktesting.LogError,
+					Message: "failed to load REST config",
+					Prefix:  "test",
+					Err: fmt.Errorf(
+						"invalid configuration: " +
+							"no configuration has been provided, " +
+							"try setting KUBERNETES_MASTER environment variable"),
+				},
+			},
+		},
+	}
+
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+			loggerConfig := ktesting.NewConfig(ktesting.BufferLogs(true))
+			logger := ktesting.NewLogger(t, loggerConfig).WithName("test")
+
+			ctx := logr.NewContext(context.Background(), logger)
+
+			_, err := NewRestConfig(ctx, tt.kubeConfig)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("NewRestConfig() error = %v, wantErr %v", err, tt.wantErr)
 			}
 
 			assertLogFields(ctx, t, tt)
@@ -328,7 +390,7 @@ func TestNewClientSet(t *testing.T) {
 
 			_, err := NewClientSet(ctx, tt.restConfig)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("NewClient() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("NewClientSet() error = %v, wantErr %v", err, tt.wantErr)
 			}
 
 			assertLogFields(ctx, t, tt)
