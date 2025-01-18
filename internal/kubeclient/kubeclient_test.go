@@ -2,8 +2,10 @@ package kubeclient
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -44,22 +46,6 @@ func (tc *testCase) writeMockFile() error {
 func TestNewPath(t *testing.T) {
 	testCases := []testCase{
 		{
-			name: "empty kubeconfig with no home dir",
-			path: "",
-			setup: func() {
-				t.Setenv("HOME", "")
-			},
-			wantErr: true,
-			wantLogs: []ktesting.LogEntry{
-				{
-					Type:    ktesting.LogError,
-					Message: "failed to create client",
-					Prefix:  "test",
-					Err:     errors.New("home directory not found"),
-				},
-			},
-		},
-		{
 			name: "kubeconfig with home dir",
 			path: "/home/testuser/.kube/config",
 			setup: func() {
@@ -72,6 +58,22 @@ func TestNewPath(t *testing.T) {
 					Message:   "successfully created kubeconfig path",
 					Prefix:    "test",
 					Verbosity: 2,
+				},
+			},
+		},
+		{
+			name: "empty kubeconfig with no home dir",
+			path: "",
+			setup: func() {
+				t.Setenv("HOME", "")
+			},
+			wantErr: true,
+			wantLogs: []ktesting.LogEntry{
+				{
+					Type:    ktesting.LogError,
+					Message: "failed to create client",
+					Prefix:  "test",
+					Err:     errors.New("home directory not found"),
 				},
 			},
 		},
@@ -98,11 +100,68 @@ func TestNewPath(t *testing.T) {
 	}
 }
 
+type mockFs struct {
+	afero.MemMapFs
+	readFileErr error
+	statErr     error
+}
+
+func (m *mockFs) Open(name string) (afero.File, error) {
+	if m.readFileErr != nil {
+		return nil, m.readFileErr
+	}
+	return m.MemMapFs.Open(name)
+}
+
+func (m *mockFs) Stat(name string) (os.FileInfo, error) {
+	if m.statErr != nil {
+		return nil, m.statErr
+	}
+	return m.MemMapFs.Stat(name)
+}
+
 func TestNewKubeConfig(t *testing.T) {
 	testCases := []testCase{
 		{
-			fs:      afero.NewMemMapFs(),
-			name:    "invalid kubeconfig path",
+			fileContent: "proper: yaml",
+			fs:          &mockFs{},
+			name:        "kubeconfig with home directory",
+			path:        "/home/testuser/.kube/config",
+			wantErr:     false,
+			wantLogs: []ktesting.LogEntry{
+				{
+					Type:    ktesting.LogInfo,
+					Message: "successfully loaded kubeconfig",
+					Prefix:  "test",
+					WithKVList: []interface{}{
+						"path", "/home/testuser/.kube/config",
+					},
+					Verbosity: 2,
+				},
+			},
+		},
+		{
+			fs: &mockFs{
+				statErr: fmt.Errorf("simulated stat error"),
+			},
+			name:    "error checking kubeconfig existence",
+			path:    "/home/testuser/.kube/config",
+			wantErr: true,
+			wantLogs: []ktesting.LogEntry{
+				{
+					Type:    ktesting.LogError,
+					Message: "failed to check kubeconfig existence",
+					Prefix:  "test",
+					Err:     fmt.Errorf("simulated stat error"),
+					WithKVList: []interface{}{
+						"path", "/home/testuser/.kube/config",
+					},
+				},
+			},
+		},
+		{
+			fs:      &mockFs{},
+			name:    "kubeconfig does not exist",
 			path:    "/non/existent/path/config",
 			wantErr: true,
 			wantLogs: []ktesting.LogEntry{
@@ -118,36 +177,51 @@ func TestNewKubeConfig(t *testing.T) {
 			},
 		},
 		{
-			fileContent: `
-apiVersion: v1
-kind: Config
-clusters:
-- name: minimal-cluster
-  cluster:
-    server: https://127.0.0.1:6443
-contexts:
-- name: minimal-context
-  context:
-    cluster: minimal-cluster
-    user: minimal-user
-current-context: minimal-context
-users:
-- name: minimal-user
-  user: {}
-`,
-			fs:      afero.NewMemMapFs(),
-			name:    "kubeconfig with home directory",
+			fileContent: "kubeconfig definition",
+			fs: &mockFs{
+				readFileErr: fmt.Errorf("simulated read error"),
+			},
+			name:    "Error reading kubeconfig file",
 			path:    "/home/testuser/.kube/config",
-			wantErr: false,
+			wantErr: true,
 			wantLogs: []ktesting.LogEntry{
 				{
-					Type:    ktesting.LogInfo,
-					Message: "successfully loaded kubeconfig",
+					Type:    ktesting.LogError,
+					Message: "failed to read kubeconfig file",
 					Prefix:  "test",
+					Err:     fmt.Errorf("simulated read error"),
 					WithKVList: []interface{}{
 						"path", "/home/testuser/.kube/config",
 					},
-					Verbosity: 2,
+				},
+			},
+		},
+		{
+			fileContent: `{"kind": 123}`,
+			fs:          &mockFs{},
+			name:        "Error parsing kubeconfig content",
+			path:        "/home/testuser/.kube/config",
+			wantErr:     true,
+			wantLogs: []ktesting.LogEntry{
+				{
+					Type:    ktesting.LogError,
+					Message: "failed to parse kubeconfig content",
+					Prefix:  "test",
+					Err: func() error {
+						var x struct {
+							Kind string `json:"kind,omitempty"`
+						}
+						err := json.Unmarshal([]byte(`{"kind":123}`), &x)
+						if err != nil {
+							return fmt.Errorf(
+								"couldn't get version/kind; "+
+									"json parse error: %v", err)
+						}
+						return nil
+					}(),
+					WithKVList: []interface{}{
+						"path", "/home/testuser/.kube/config",
+					},
 				},
 			},
 		},
@@ -178,6 +252,21 @@ users:
 
 func TestNewClientSet(t *testing.T) {
 	testCases := []testCase{
+		{
+			name:    "valid configuration",
+			wantErr: false,
+			wantLogs: []ktesting.LogEntry{
+				{
+					Type:      ktesting.LogInfo,
+					Message:   "successfully created clientset",
+					Prefix:    "test",
+					Verbosity: 2,
+				},
+			},
+			restConfig: &rest.Config{
+				Host: "https://127.0.0.1:6443",
+			},
+		},
 		{
 			name:    "invalid host",
 			wantErr: true,
@@ -223,21 +312,6 @@ func TestNewClientSet(t *testing.T) {
 				},
 			},
 			restConfig: nil,
-		},
-		{
-			name:    "valid configuration",
-			wantErr: false,
-			wantLogs: []ktesting.LogEntry{
-				{
-					Type:      ktesting.LogInfo,
-					Message:   "successfully created clientset",
-					Prefix:    "test",
-					Verbosity: 2,
-				},
-			},
-			restConfig: &rest.Config{
-				Host: "https://127.0.0.1:6443",
-			},
 		},
 	}
 
