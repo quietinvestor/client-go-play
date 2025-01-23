@@ -101,3 +101,31 @@ func NewClientSet(ctx context.Context, config *rest.Config) (*kubernetes.Clients
 
 	return client, nil
 }
+
+func NewClient(ctx context.Context, fs afero.Fs, path string) (*kubernetes.Clientset, error) {
+	logger, _ := logr.FromContext(ctx)
+
+	path, err := NewPath(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+
+	kubeConfig, err := NewKubeConfig(ctx, fs, path)
+	if err != nil {
+		return nil, err
+	}
+
+	restConfig, err := NewRestConfig(ctx, kubeConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	client, err := NewClientSet(ctx, restConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	logger.V(2).Info("successfully created client")
+
+	return client, nil
+}

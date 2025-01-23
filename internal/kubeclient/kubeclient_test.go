@@ -398,6 +398,87 @@ func TestNewClientSet(t *testing.T) {
 	}
 }
 
+func TestNewClient(t *testing.T) {
+	testCases := []testCase{
+		{
+			fileContent: `apiVersion: v1
+kind: Config
+clusters:
+- name: cluster
+  cluster:
+    server: https://example.com
+contexts:
+- name: context
+  context:
+    cluster: cluster
+    user: user
+current-context: context`,
+			fs:      &mockFs{},
+			name:    "valid configuration",
+			path:    "/home/testuser/.kube/config",
+			wantErr: false,
+			wantLogs: []ktesting.LogEntry{
+				{
+					Type:      ktesting.LogInfo,
+					Message:   "successfully created kubeconfig path",
+					Prefix:    "test",
+					Verbosity: 2,
+				},
+				{
+					Type:      ktesting.LogInfo,
+					Message:   "successfully loaded kubeconfig",
+					Prefix:    "test",
+					Verbosity: 2,
+				},
+				{
+					Type:      ktesting.LogInfo,
+					Message:   "successfully loaded REST config",
+					Prefix:    "test",
+					Verbosity: 2,
+				},
+				{
+					Type:      ktesting.LogInfo,
+					Message:   "successfully created clientset",
+					Prefix:    "test",
+					Verbosity: 2,
+				},
+				{
+					Type:      ktesting.LogInfo,
+					Message:   "successfully created client",
+					Prefix:    "test",
+					Verbosity: 2,
+				},
+			},
+		},
+	}
+
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+			loggerConfig := ktesting.NewConfig(ktesting.BufferLogs(true))
+			logger := ktesting.NewLogger(t, loggerConfig).WithName("test")
+
+			ctx := logr.NewContext(context.Background(), logger)
+
+			if tt.setup != nil {
+				tt.setup()
+			}
+
+			if tt.fs != nil && tt.fileContent != "" {
+				if err := tt.writeMockFile(); err != nil {
+					t.Error(err)
+				}
+			}
+
+			_, err := NewClient(ctx, tt.fs, tt.path)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("NewClient() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			assertLogFields(ctx, t, tt)
+		})
+	}
+}
+
 func assertLogFields(ctx context.Context, t *testing.T, tt testCase) {
 	logger, _ := logr.FromContext(ctx)
 
