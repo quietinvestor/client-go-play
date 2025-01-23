@@ -43,7 +43,7 @@ func (tc *testCase) writeMockFile() error {
 	return nil
 }
 
-func TestNewPath(t *testing.T) {
+func TestPath(t *testing.T) {
 	testCases := []testCase{
 		{
 			name: "kubeconfig with home dir",
@@ -90,9 +90,9 @@ func TestNewPath(t *testing.T) {
 				tt.setup()
 			}
 
-			_, err := NewPath(ctx, tt.path)
+			_, err := Path(ctx, tt.path)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("NewPath() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("Path() error = %v, wantErr %v", err, tt.wantErr)
 			}
 
 			assertLogFields(ctx, t, tt)
@@ -120,7 +120,7 @@ func (m *mockFs) Stat(name string) (os.FileInfo, error) {
 	return m.MemMapFs.Stat(name)
 }
 
-func TestNewKubeConfig(t *testing.T) {
+func TestLoadKubeConfig(t *testing.T) {
 	testCases := []testCase{
 		{
 			fileContent: "proper: yaml",
@@ -240,9 +240,9 @@ func TestNewKubeConfig(t *testing.T) {
 				}
 			}
 
-			_, err := NewKubeConfig(ctx, tt.fs, tt.path)
+			_, err := LoadKubeConfig(ctx, tt.fs, tt.path)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("NewKubeConfig() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("LoadKubeConfig() error = %v, wantErr %v", err, tt.wantErr)
 			}
 
 			assertLogFields(ctx, t, tt)
@@ -250,7 +250,7 @@ func TestNewKubeConfig(t *testing.T) {
 	}
 }
 
-func TestNewRestConfig(t *testing.T) {
+func TestLoadRestConfig(t *testing.T) {
 	testCases := []testCase{
 		{
 			kubeConfig: &clientcmdapi.Config{
@@ -302,9 +302,9 @@ func TestNewRestConfig(t *testing.T) {
 
 			ctx := logr.NewContext(context.Background(), logger)
 
-			_, err := NewRestConfig(ctx, tt.kubeConfig)
+			_, err := LoadRestConfig(ctx, tt.kubeConfig)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("NewRestConfig() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("LoadRestConfig() error = %v, wantErr %v", err, tt.wantErr)
 			}
 
 			assertLogFields(ctx, t, tt)
@@ -398,7 +398,7 @@ func TestNewClientSet(t *testing.T) {
 	}
 }
 
-func TestNewClient(t *testing.T) {
+func TestDefaultClientSet(t *testing.T) {
 	testCases := []testCase{
 		{
 			fileContent: `apiVersion: v1
@@ -414,7 +414,7 @@ contexts:
     user: user
 current-context: context`,
 			fs:      &mockFs{},
-			name:    "valid configuration",
+			name:    "integration test",
 			path:    "/home/testuser/.kube/config",
 			wantErr: false,
 			wantLogs: []ktesting.LogEntry{
@@ -469,9 +469,9 @@ current-context: context`,
 				}
 			}
 
-			_, err := NewClient(ctx, tt.fs, tt.path)
+			_, err := DefaultClientSet(ctx, tt.fs, tt.path)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("NewClient() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("DefaultClientSet() error = %v, wantErr %v", err, tt.wantErr)
 			}
 
 			assertLogFields(ctx, t, tt)

@@ -16,7 +16,7 @@ import (
 	"k8s.io/client-go/util/homedir"
 )
 
-func NewPath(ctx context.Context, path string) (string, error) {
+func Path(ctx context.Context, path string) (string, error) {
 	logger, _ := logr.FromContext(ctx)
 
 	if path == "" {
@@ -34,7 +34,7 @@ func NewPath(ctx context.Context, path string) (string, error) {
 	return path, nil
 }
 
-func NewKubeConfig(ctx context.Context, fs afero.Fs, path string) (*clientcmdapi.Config, error) {
+func LoadKubeConfig(ctx context.Context, fs afero.Fs, path string) (*clientcmdapi.Config, error) {
 	logger, _ := logr.FromContext(ctx)
 	logger = logger.WithValues("path", path)
 
@@ -65,7 +65,7 @@ func NewKubeConfig(ctx context.Context, fs afero.Fs, path string) (*clientcmdapi
 	return kubeConfig, nil
 }
 
-func NewRestConfig(ctx context.Context, kubeConfig *clientcmdapi.Config) (*rest.Config, error) {
+func LoadRestConfig(ctx context.Context, kubeConfig *clientcmdapi.Config) (*rest.Config, error) {
 	logger, _ := logr.FromContext(ctx)
 
 	overrides := &clientcmd.ConfigOverrides{}
@@ -102,20 +102,20 @@ func NewClientSet(ctx context.Context, config *rest.Config) (*kubernetes.Clients
 	return client, nil
 }
 
-func NewClient(ctx context.Context, fs afero.Fs, path string) (*kubernetes.Clientset, error) {
+func DefaultClientSet(ctx context.Context, fs afero.Fs, path string) (*kubernetes.Clientset, error) {
 	logger, _ := logr.FromContext(ctx)
 
-	path, err := NewPath(ctx, path)
+	path, err := Path(ctx, path)
 	if err != nil {
 		return nil, err
 	}
 
-	kubeConfig, err := NewKubeConfig(ctx, fs, path)
+	kubeConfig, err := LoadKubeConfig(ctx, fs, path)
 	if err != nil {
 		return nil, err
 	}
 
-	restConfig, err := NewRestConfig(ctx, kubeConfig)
+	restConfig, err := LoadRestConfig(ctx, kubeConfig)
 	if err != nil {
 		return nil, err
 	}

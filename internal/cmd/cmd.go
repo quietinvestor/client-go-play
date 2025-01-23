@@ -50,7 +50,7 @@ func NewRootCmd() *cobra.Command {
 
 			fs := afero.NewOsFs()
 
-			client, err := kubeclient.NewClient(ctx, fs, path)
+			client, err := kubeclient.DefaultClientSet(ctx, fs, path)
 			if err != nil {
 				cancel()
 				return err
