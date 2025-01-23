@@ -20,12 +20,12 @@ func Path(ctx context.Context, path string) (string, error) {
 	logger, _ := logr.FromContext(ctx)
 
 	if path == "" {
-		home := homedir.HomeDir()
-		if home == "" {
+		homeDir := homedir.HomeDir()
+		if homeDir == "" {
 			logger.Error(errors.New("home directory not found"), "failed to create client")
 			return "", fmt.Errorf("failed to create client: home directory not found")
 		}
-		path = filepath.Join(home, ".kube", "config")
+		path = filepath.Join(homeDir, ".kube", "config")
 	}
 
 	logger = logger.WithValues("path", path)
