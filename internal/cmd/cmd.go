@@ -3,6 +3,8 @@ package cmd
 import (
 	"context"
 	"flag"
+	"io"
+	"os"
 	"time"
 
 	"github.com/quietinvestor/client-go-play/internal/kubeclient"
@@ -29,6 +31,7 @@ type State struct {
 	Client    *kubernetes.Clientset
 	Namespace string
 	Opts      metav1.ListOptions
+	Writer    io.Writer
 }
 
 func NewRootCmd() *cobra.Command {
@@ -62,6 +65,7 @@ func NewRootCmd() *cobra.Command {
 				Client:    client,
 				Namespace: namespace,
 				Opts:      metav1.ListOptions{},
+				Writer:    os.Stdout,
 			}
 
 			cmd.SetContext(context.WithValue(ctx, stateKey, state))
@@ -101,7 +105,7 @@ func newPodsListCmd() *cobra.Command {
 		Short: "List pods",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			state := cmd.Context().Value(stateKey).(*State)
-			return pods.List(state.Ctx, state.Client, state.Namespace, state.Opts)
+			return pods.List(state.Ctx, state.Writer, state.Client, state.Namespace, state.Opts)
 		},
 	}
 
